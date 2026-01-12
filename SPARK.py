@@ -45,7 +45,6 @@ class Siamese(nn.Module):
         self.bert = True
         self.score_function = score_function
 
-        self.scale = torch.Tensor([1. / np.sqrt(self.dim_str)]).cuda()
         self.visual_token_embedding.requires_grad_(False)
         self.text_token_embedding.requires_grad_(False)
 
@@ -86,10 +85,10 @@ class Siamese(nn.Module):
         self.proj_ent_vis = nn.Linear(32, dim_str)
         self.proj_ent_txt = nn.Linear(768, dim_str)
 
-        ######
-        self.context_vec = nn.Parameter(torch.randn((1, dim_str)))
-
-        self.act = nn.Softmax(dim=1)
+        # TODO
+        self.fusion_model = Attention_Fusion(dim_str)
+        # self.fusion_model = SSM_Fusion(dim_str)
+        # TODO
 
         ent_encoder_layer = nn.TransformerEncoderLayer(dim_str, num_head, dim_hid, dropout, batch_first=True)
         self.ent_encoder = nn.TransformerEncoder(ent_encoder_layer, num_layer_enc_ent)
@@ -149,55 +148,21 @@ class Siamese(nn.Module):
         vis_embdding = self.ent_encoder(ent_seq2)[:, 0]
         txt_embdding = self.ent_encoder(ent_seq3)[:, 0]
 
-        # TODO
-        # align_model = AlignLoss()
-        # align_loss = align_model(str_embdding, vis_embdding, txt_embdding)
-        # TODO
-
-        cands = torch.stack([ent_tkn2, str_embdding, vis_embdding, txt_embdding], dim=1)  # (1500, 4, 256)
+        cands = torch.stack([ent_tkn2, str_embdding, vis_embdding, txt_embdding],
+                            dim=1)  # [batch_size, num_modality, str_dim]
         # x = torch.arange(self.num_ent).cuda()
 
-        context_vec = self.context_vec  # context_vec:[1, str_dim] cands:[batch_size, num_modality, str_dim]
-        att_weights = torch.sum(context_vec * cands * self.scale, dim=-1, keepdim=True)  # [batch_size, num_modality, 1]
-        att_weights = self.act(att_weights)  # [batch_size, num_modality, 1]
-        ent_embs = torch.sum(att_weights * cands, dim=1)  # [batch_size, num_modality, str_dim]
+        # TODO
+        # context_vec = self.context_vec  # context_vec:[1, str_dim]
+        # att_weights = torch.sum(context_vec * cands * self.scale, dim=-1, keepdim=True)  # [batch_size, num_modality, 1]
+        # att_weights = self.act(att_weights)  # [batch_size, num_modality, 1]
+        # ent_embs = torch.sum(att_weights * cands, dim=1)  # [batch_size, str_dim]
+        ent_embs = self.fusion(cands)
+        # TODO
 
-        # ent_seq = torch.cat([ent_tkn, rep_ent_str, rep_ent_vis, rep_ent_txt], dim = 1)
-        # ent_embs = self.ent_encoder(ent_seq, src_key_padding_mask = self.ent_mask)[:,0]
         rep_rel_str = self.embdr(self.str_rel_ln(self.rel_embeddings))
         return torch.cat([ent_embs, self.lp_token], dim=0), rep_rel_str.squeeze(dim=1), [str_embdding, vis_embdding,
                                                                                          txt_embdding]
-
-    def align(self, emb_list):
-        str_embdding, vis_embdding, txt_embdding = emb_list
-        align_model = AlignLoss()
-        align_loss = align_model(str_embdding, vis_embdding, txt_embdding)
-        return align_loss
-
-    # def score(self, emb_ent, emb_rel, triplets):
-    #
-    #     h_seq = emb_ent[triplets[:, 0] - self.num_rel].unsqueeze(dim=1) + self.pos_head
-    #     r_seq = emb_rel[triplets[:, 1] - self.num_ent].unsqueeze(dim=1) + self.pos_rel
-    #     t_seq = emb_ent[triplets[:, 2] - self.num_rel].unsqueeze(dim=1) + self.pos_tail
-    #
-    #     dec_seq = torch.cat([h_seq, r_seq, t_seq], dim=1)
-    #     output_dec = self.decoder(dec_seq)
-    #     rel_emb = output_dec[:, 1, :]
-    #     ctx_emb = output_dec[triplets == self.num_ent + self.num_rel]
-    #
-    #     if self.score_function == "tucker":
-    #         tucker_emb = self.tucker_decoder(ctx_emb, rel_emb)
-    #         scores = torch.mm(tucker_emb, emb_ent[:-1].transpose(1, 0))
-    #
-    #     elif self.score_function == "transe":
-    #         trans_embedding = self.transE_decoder(ctx_emb, rel_emb)
-    #
-    #         scores = torch.mm(trans_embedding, emb_ent[:-1].transpose(1, 0))
-    #     elif self.score_function == "rotate":
-    #         rotae_emb = self.rotate_decoder(output_dec, rel_emb)
-    #         scores = torch.mm(rotae_emb, emb_ent[:-1].transpose(1, 0))
-    #
-    #     return scores
 
     def score(self, emb_ent, emb_rel, triples):
         mask = (triples == self.num_ent + self.num_rel)  # [batch_size, 3]
@@ -229,9 +194,24 @@ class Siamese(nn.Module):
                 raise NotImplementedError
         return scores
 
+    def align(self, emb_list):
+        """
+        模态对齐
+        :param emb_list:
+        :return:
+        """
+        str_embdding, vis_embdding, txt_embdding = emb_list
+        align_model = AlignLoss()  # 无参数需要更新
+        align_loss = align_model(str_embdding, vis_embdding, txt_embdding)
+        return align_loss
+
+    def fusion(self, x):
+        return self.fusion_model(x)
+
     # 方式四. pos_neg_logits_vectorized_topk(选取top_k)
     def pos_neg_logits_vectorized_topk(self, score, label, filter_mask, neg_num=3):
         """
+        实体负采样
         :param score: [batch_size, num_entity]
         :param label: [batch_size,]
         :param filter_mask: [batch_size, num_entity]
@@ -267,7 +247,7 @@ class Siamese(nn.Module):
 
 
 """
-    可替代
+    模态对齐
 """
 
 
@@ -306,6 +286,75 @@ class AlignLoss(nn.Module):
         loss2 = self.structure_modality_contrastive(str_emb, txt_emb)
         loss = loss1 + loss2
         return loss
+
+
+"""
+    模态融合
+"""
+
+
+class Attention_Fusion(nn.Module):
+    """
+        注意力机制融合
+    """
+
+    def __init__(self, dim, num_heads=1):
+        super(Attention_Fusion, self).__init__()
+        self.num_heads = num_heads
+        self.scale = torch.Tensor([1. / (dim ** 0.5)]).cuda()
+        self.context_vec = nn.Parameter(torch.randn((num_heads, dim)))
+        self.act = nn.Softmax(dim=1)
+        self.out_proj = nn.Linear(num_heads * dim, dim)
+
+    def forward(self, x):
+        """
+        :param x: [batch_size, num_modality, dim]
+        :return: [batch_size, dim]
+        """
+        head_outputs = []
+        for h in range(self.num_heads):
+            context_vec = self.context_vec[h:h + 1]  # context_vec:[1, dim]
+            att_weights = torch.sum(context_vec * x * self.scale, dim=-1, keepdim=True)  # [batch_size, num_modality, 1]
+            att_weights = self.act(att_weights)  # [batch_size, num_modality, 1]
+            head_output = torch.sum(att_weights * x, dim=1)  # [batch_size, dim]
+            head_outputs.append(head_output)
+        multi_head_out = torch.cat(head_outputs, dim=-1)
+        ent_embs = self.out_proj(multi_head_out)
+        return ent_embs
+
+
+class SSM_Fusion(nn.Module):
+    """
+        状态空间模型融合
+    """
+
+    def __init__(self, dim):
+        super(SSM_Fusion, self).__init__()
+        self.in_proj = nn.Linear(dim, dim * 2)
+        self.out_proj = nn.Linear(dim, dim)
+        self.h = nn.Parameter(torch.zeros(dim))
+
+    def forward(self, x, return_sequence=False):
+        B, L, D = x.shape
+        h = self.h.unsqueeze(0).expand(B, -1)
+
+        states = []
+
+        for t in range(L):
+            xt = x[:, t]
+            a, b = self.in_proj(xt).chunk(2, dim=-1)
+            a = torch.sigmoid(a)
+            b = torch.tanh(b)
+            h = a * h + (1 - a) * b
+            states.append(h.unsqueeze(1))
+
+        y = torch.cat(states, dim=1)
+        y = self.out_proj(y)
+
+        if return_sequence:
+            return y
+        else:
+            return y[:, -1]
 
 
 """

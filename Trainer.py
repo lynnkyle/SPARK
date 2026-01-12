@@ -16,7 +16,7 @@ from dataset import KG
 from merge_tokens import get_entity_visual_tokens, get_entity_textual_tokens
 from utils import calculate_rank, metrics
 
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 
 OMP_NUM_THREADS = 8
 torch.backends.cudnn.benchmark = True
@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim', default=256, type=int)
     parser.add_argument('--num_epoch', default=3000, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
-    parser.add_argument('--exp', default='Siamese_neg')
+    parser.add_argument('--exp', default='Siamese_align_neg')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -168,8 +168,8 @@ if __name__ == '__main__':
             scores = model.score(ent_embs, rel_embs, batch.cuda())
             loss = cross_entropy_loss_fn(scores, label.cuda())
             # TODO
-            align_loss = model.align(emb_list)
-            loss += align_loss * 0.01
+            # align_loss = model.align(emb_list)
+            # loss += align_loss * 0.01
             # TODO
             # pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
             #                                                             neg_num=3)
