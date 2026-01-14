@@ -112,7 +112,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim', default=256, type=int)
     parser.add_argument('--num_epoch', default=5000, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
-    parser.add_argument('--exp', default='Siamese_neg')
+    parser.add_argument('--exp', default='Siamese')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)

@@ -86,6 +86,11 @@ class Siamese(nn.Module):
         self.proj_ent_txt = nn.Linear(768, dim_str)
 
         # TODO
+        self.align_model = AlignLoss_Parameter()  # 无参数需要更新
+        # TODO
+        # self.context_vec = nn.Parameter(torch.randn((1, dim_str)))
+        # self.act = nn.Softmax(dim=1)
+        # self.scale = torch.Tensor([1. / np.sqrt(self.dim_str)]).cuda()
         self.fusion_model = Attention_Fusion(dim_str)
         # self.fusion_model = SSM_Fusion(dim_str)
         # TODO
@@ -201,8 +206,7 @@ class Siamese(nn.Module):
         :return:
         """
         str_embdding, vis_embdding, txt_embdding = emb_list
-        align_model = AlignLoss()  # 无参数需要更新
-        align_loss = align_model(str_embdding, vis_embdding, txt_embdding)
+        align_loss = self.align_model(str_embdding, vis_embdding, txt_embdding)
         return align_loss
 
     def fusion(self, x):
@@ -256,6 +260,43 @@ class AlignLoss(nn.Module):
         super(AlignLoss, self).__init__()
         self.svc_neg_num = 16
         self.svc_temperature = 0.02
+
+    def structure_modality_contrastive(self, str_embdding, mod_embdding):
+        """
+        :param str_embdding: [num_ent, emb_dim]
+        :param mod_embdding: [num_ent, emb_dim]
+        :return:
+        """
+        str_embdding = torch.nn.functional.normalize(str_embdding, p=2, dim=-1, eps=1e-5)
+        mod_embdding = torch.nn.functional.normalize(mod_embdding, p=2, dim=-1, eps=1e-5)
+        bs, _ = str_embdding.size()
+        neg_sample_id = torch.randint(0, bs, [bs, self.svc_neg_num])  # [num_ent, num_sample]
+        neg_str_feat = str_embdding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
+        neg_mod_feat = mod_embdding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
+        str_samples = torch.cat([str_embdding.unsqueeze(1), neg_str_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
+        mod_samples = torch.cat([mod_embdding.unsqueeze(1), neg_mod_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
+        s2m_score = torch.matmul(mod_samples, str_embdding.unsqueeze(2)).squeeze(
+            2) / self.svc_temperature  # [num_ent, 1+num_sample]
+        m2s_score = torch.matmul(str_samples, mod_embdding.unsqueeze(2)).squeeze(
+            2) / self.svc_temperature  # [num_ent, 1+num_sample]
+        label = torch.zeros([bs, ], dtype=torch.long).to(str_embdding.device)  # [num_ent] 第0个是正确实体
+        s2v_loss = torch.nn.functional.cross_entropy(s2m_score, label)
+        v2s_loss = torch.nn.functional.cross_entropy(m2s_score, label)
+        svc_loss = 0.5 * (s2v_loss + v2s_loss)
+        return svc_loss
+
+    def forward(self, str_emb, vis_emb, txt_emb):
+        loss1 = self.structure_modality_contrastive(str_emb, vis_emb)
+        loss2 = self.structure_modality_contrastive(str_emb, txt_emb)
+        loss = loss1 + loss2
+        return loss
+
+
+class AlignLoss_Parameter(nn.Module):
+    def __init__(self):
+        super(AlignLoss_Parameter, self).__init__()
+        self.svc_neg_num = 16
+        self.svc_temperature = nn.Parameter(torch.tensor(0.02))
 
     def structure_modality_contrastive(self, str_embdding, mod_embdding):
         """

@@ -124,16 +124,15 @@ def save_triple2id():
 def save_triple2text(data_dir, in_file, out_file):
     ent_num, ent2id, id2ent = load_entity(data_dir)
     rel_num, rel2id, id2rel = load_relation(data_dir)
-    read_path = os.path.join(data_dir, in_file)
-    write_path = os.path.join(data_dir, out_file)
 
     def save_triple(read_path, write_path):
         with open(read_path, 'r', encoding='utf-8') as f1, open(write_path, 'w', encoding='utf-8') as f2:
-            for line in f1.readlines():
+            for line in f1.readlines()[1:]:
                 h, r, t = line.strip().split('\t')
                 f2.write(f'{id2ent[int(h)]}\t{id2rel[int(r)]}\t{id2ent[int(t)]}\n')
 
-    save_triple(read_path, write_path)
+    print("num_ent:", ent_num)
+    save_triple(in_file, out_file)
 
 
 def load_ent_or_rel(file_path: str):
@@ -527,11 +526,22 @@ def make_dataset_mp(data, graph, output_file):
     return data
 
 
-if __name__ == '__main__':
+def loadEntRelJson(data_dir):
+    in_files = ['train.txt', 'valid.txt', 'test.txt']
+    out_files = ['train2text.txt', 'valid2text.txt', 'test2text.txt']
+    for file_in, file_out in zip(in_files, out_files):
+        in_file = os.path.join(data_dir, file_in)
+        out_file = os.path.join(data_dir, file_out)
+        save_triple2text(data_dir, in_file, out_file)
+        save_ent2desc(data_dir)
+        save_rel2desc(data_dir)
+    print("Done1!!!")
 
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--seed', type=int, default=0)
-    parser.add_argument('--llm_dir', type=str, default='models--TheBloke--Llama-2-7B-fp16',
+    parser.add_argument('--llm_dir', type=str, default='../Flare/models--TheBloke--Llama-2-7B-fp16',
                         help='choose your llm model')
     parser.add_argument('--data_dir', type=str, default='data')
     parser.add_argument('--dataset', type=str, default='DB15K', help='FB15K237 | WN18RR')
@@ -539,7 +549,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim', type=int, default=768)
     parser.add_argument('--topk', type=int, default=10, help='number of candidates')
     parser.add_argument('--threshold', type=float, default=0.1, help='threshold for truncated sampling')
-    parser.add_argument('--kge_model', type=str, default='Flare', help='TransE | SimKGC | CoLE')
+    parser.add_argument('--kge_model', type=str, default='Siamese', help='TransE | SimKGC | CoLE')
     parser.add_argument('--add_special_tokens', type=bool, default=True, help='add special tokens')
     parser.add_argument('--add_entity_desc', type=bool, default=True)
     parser.add_argument('--max_seq_len', type=int, default=50, help='the max length of FB15K237')
@@ -551,31 +561,27 @@ if __name__ == '__main__':
     random.seed(args.seed)
     np.random.seed(args.seed)
 
+    data_dir = f'{args.data_dir}/{args.dataset}'
     # 1. entity.json/relation.json制作
-    # save_triple2text(f'{args.data_dir}/{args.dataset}', 'train2id.txt', 'train.txt')
-    # save_triple2text(f'{args.data_dir}/{args.dataset}', 'test2id.txt', 'test.txt')
-    # save_triple2text(f'{args.data_dir}/{args.dataset}', 'valid2id.txt', 'valid.txt')
-    # save_ent2desc(f'{args.data_dir}/{args.dataset}')
-    # save_rel2desc(f'{args.data_dir}/{args.dataset}')
-    # print("Done1!!!")
+    loadEntRelJson(data_dir)
 
     # 2. 提示词制作
-    tokenizer = AutoTokenizer.from_pretrained(args.llm_dir, use_fast=False)
-
-    tokenizer.pad_token = tokenizer.eos_token
-    graph = KnowledgeGraph(args, tokenizer)
-
-    if args.kge_model == 'Flare':
-        valid_data, test_data = Flare_preprocess(args, graph)
-    else:
-        raise NotImplementedError()
-
-    os.makedirs(f'{args.output_dir}', exist_ok=True)
-    llm_train, llm_valid = divide_valid(args, valid_data)
-    train_examples = make_dataset_mp(llm_train, graph, os.path.join(args.output_dir, 'train.json'))
-    valid_examples = make_dataset_mp(llm_valid, graph, os.path.join(args.output_dir, 'valid.json'))
-    test_examples = make_dataset_mp(test_data, graph, os.path.join(args.output_dir, 'test.json'))
-
-    args = vars(args)
-
-    print('Done2!!!')
+    # tokenizer = AutoTokenizer.from_pretrained(args.llm_dir, use_fast=False)
+    #
+    # tokenizer.pad_token = tokenizer.eos_token
+    # graph = KnowledgeGraph(args, tokenizer)
+    #
+    # if args.kge_model == 'Flare':
+    #     valid_data, test_data = Flare_preprocess(args, graph)
+    # else:
+    #     raise NotImplementedError()
+    #
+    # os.makedirs(f'{args.output_dir}', exist_ok=True)
+    # llm_train, llm_valid = divide_valid(args, valid_data)
+    # train_examples = make_dataset_mp(llm_train, graph, os.path.join(args.output_dir, 'train.json'))
+    # valid_examples = make_dataset_mp(llm_valid, graph, os.path.join(args.output_dir, 'valid.json'))
+    # test_examples = make_dataset_mp(test_data, graph, os.path.join(args.output_dir, 'test.json'))
+    #
+    # args = vars(args)
+    #
+    # print('Done2!!!')
