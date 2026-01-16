@@ -5,7 +5,7 @@ import json
 import numpy as np
 
 import torch
-
+from datasets import tqdm
 from SPARK import Siamese
 from dataset import KG
 from merge_tokens import get_entity_visual_tokens, get_entity_textual_tokens
@@ -36,6 +36,8 @@ def valid_eval_metric(valid_or_test):
 
 @torch.no_grad()
 def save_numpy(args, type, valid_or_test, topK):
+    model.eval()
+
     query_list = []
     rank_list = []
     topk_list = []
@@ -110,9 +112,9 @@ if __name__ == '__main__':
     parser.add_argument('--data', default="DB15K", type=str)
     parser.add_argument('--lr', default=5e-4, type=float)
     parser.add_argument('--dim', default=256, type=int)
-    parser.add_argument('--num_epoch', default=5000, type=int)
+    parser.add_argument('--num_epoch', default=3000, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
-    parser.add_argument('--exp', default='Siamese')
+    parser.add_argument('--exp', default='Siamese_align_param')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -120,17 +122,17 @@ if __name__ == '__main__':
     parser.add_argument('--num_head', default=4, type=int)
     parser.add_argument('--hidden_dim', default=1024, type=int)
     parser.add_argument('--dropout', default=0.01, type=float)
-    parser.add_argument('--emb_dropout', default=0.5, type=float)
+    parser.add_argument('--emb_dropout', default=0.9, type=float)
     parser.add_argument('--vis_dropout', default=0.4, type=float)
     parser.add_argument('--txt_dropout', default=0.1, type=float)
     parser.add_argument('--smoothing', default=0.0, type=float)
     parser.add_argument('--batch_size', default=2048, type=int)
     parser.add_argument('--decay', default=0.0, type=float)
     parser.add_argument('--max_vis_num', default=3, type=int)
-    parser.add_argument('--cont', action='store_true')
+    parser.add_argument('--cont', action='store_true')  # deprecate
     parser.add_argument('--step_size', default=50, type=int)
-    parser.add_argument('--max_vis_token', default=32, type=int)
-    parser.add_argument('--max_txt_token', default=32, type=int)
+    parser.add_argument('--max_vis_token', default=16, type=int)
+    parser.add_argument('--max_txt_token', default=16, type=int)
     parser.add_argument('--score_function', default="tucker", type=str)
 
     parser.add_argument('--save_dir', default='data/DB15K/llm', type=str)
@@ -171,23 +173,21 @@ if __name__ == '__main__':
     # 模型加载
     # param1 = torch.load(f'ckpt/{args.model}/{args.data}/pre_trained.ckpt')['state_dict']
     model.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['model_state_dict'])
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
     # 优化器加载
     # param2 = torch.load(f'ckpt/{args.model}/{args.data}/pre_trained.ckpt')['optimizer']
 
     optimizer.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['optimizer_state_dict'])
-    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=50, T_mult=2)
+    lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.step_size, T_mult=2)
     # 学习率裁剪器加载
     # param3 = torch.load(f'ckpt/{args.model}/{args.data}/pre_trained.ckpt')['scheduler']
     lr_scheduler.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['scheduler_state_dict'])
-
-    model.eval()
-    valid_and_test = kg.valid + kg.test
 
     for option in [("train", kg.valid), ("test", kg.test)]:
         _, data = option[0], option[1]
         query_list, rank_list, topk_list, topk_score_list, ent_embs, query_embs = save_numpy(args, _, data,
                                                                                              topK=args.top_k)
+
         print(len(query_list))
         print(len(rank_list))
         print(len(topk_list))

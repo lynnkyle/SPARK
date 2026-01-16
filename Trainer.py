@@ -42,8 +42,8 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=5e-4, type=float)
     parser.add_argument('--dim', default=256, type=int)
     parser.add_argument('--num_epoch', default=3000, type=int)
-    parser.add_argument('--valid_epoch', default=10, type=int)
-    parser.add_argument('--exp', default='Siamese_align_param')
+    parser.add_argument('--valid_epoch', default=100, type=int)
+    parser.add_argument('--exp', default='Siamese_Align_CrossAttention')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -144,7 +144,7 @@ if __name__ == '__main__':
 
     cross_entropy_loss_fn = nn.CrossEntropyLoss(label_smoothing=args.smoothing)
     # TODO
-    margin_ranking_loss_fn = torch.nn.MarginRankingLoss(margin=0.1)
+    # margin_ranking_loss_fn = torch.nn.MarginRankingLoss(margin=0.1)
     # TODO
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
@@ -163,20 +163,24 @@ if __name__ == '__main__':
 
     for epoch in range(last_epoch + 1, args.num_epoch + 1):
         total_loss = 0.0
+        # TODO
+        align_total_loss = 0.0
+        # TODO
         for batch, label, filter_mask in kg_loader:
             ent_embs, rel_embs, emb_list = model()
             scores = model.score(ent_embs, rel_embs, batch.cuda())
             loss = cross_entropy_loss_fn(scores, label.cuda())
             # TODO
             align_loss = model.align(emb_list)
-            loss += align_loss * 0.01
+            align_total_loss += align_loss
+            loss += align_loss * 0.25
             # TODO
-            pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
-                                                                        neg_num=3)
-            pos_expand = pos_logit.unsqueeze(1).expand_as(neg_logit)  # [B, n]
-            target = torch.ones_like(neg_logit)
-            res = margin_ranking_loss_fn(pos_expand.reshape(-1), neg_logit.reshape(-1), target.reshape(-1))
-            loss += 15 * res
+            # pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
+            #                                                             neg_num=3)
+            # pos_expand = pos_logit.unsqueeze(1).expand_as(neg_logit)  # [B, n]
+            # target = torch.ones_like(neg_logit)
+            # res = margin_ranking_loss_fn(pos_expand.reshape(-1), neg_logit.reshape(-1), target.reshape(-1))
+            # loss += 15 * res
             # TODO
             total_loss += loss.item()
             optimizer.zero_grad()
@@ -190,7 +194,9 @@ if __name__ == '__main__':
         elapsed_minutes = int((elapsed_seconds % 3600) // 60)
         elapsed_seconds = int(elapsed_seconds % 60)
 
-        logger.info(f"{epoch} \t {total_loss:.6f} \t {elapsed_hours}h-{elapsed_minutes}m-{elapsed_seconds}s")
+        logger.info(
+            f"{epoch} \t {total_loss:.6f} \t {align_total_loss:.6f} \t {elapsed_hours}h-{elapsed_minutes}m-{elapsed_seconds}s"
+        )
         if (epoch) % args.valid_epoch == 0:
             model.eval()
             with torch.no_grad():
