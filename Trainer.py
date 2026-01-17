@@ -43,7 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--dim', default=256, type=int)
     parser.add_argument('--num_epoch', default=3000, type=int)
     parser.add_argument('--valid_epoch', default=100, type=int)
-    parser.add_argument('--exp', default='Siamese_Align_CrossAttention')
+    parser.add_argument('--exp', default='Siamese_SSM')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -167,13 +167,11 @@ if __name__ == '__main__':
         align_total_loss = 0.0
         # TODO
         for batch, label, filter_mask in kg_loader:
-            ent_embs, rel_embs, emb_list = model()
+            ent_embs, rel_embs, align_loss = model()
             scores = model.score(ent_embs, rel_embs, batch.cuda())
             loss = cross_entropy_loss_fn(scores, label.cuda())
             # TODO
-            align_loss = model.align(emb_list)
-            align_total_loss += align_loss
-            loss += align_loss * 0.25
+            # loss += align_loss * 0.5
             # TODO
             # pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
             #                                                             neg_num=3)
@@ -200,7 +198,7 @@ if __name__ == '__main__':
         if (epoch) % args.valid_epoch == 0:
             model.eval()
             with torch.no_grad():
-                ent_embs, rel_embs, emb_list = model()
+                ent_embs, rel_embs, align_loss = model()
                 save_dir = 'embeddings/'
                 os.makedirs(save_dir, exist_ok=True)
                 # np.save(os.path.join(save_dir, f'ent_embeddings_epoch_{epoch}.npy'), ent_embs.cpu().detach().numpy())

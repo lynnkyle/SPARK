@@ -86,13 +86,13 @@ class Siamese(nn.Module):
         self.proj_ent_txt = nn.Linear(768, dim_str)
 
         # TODO
-        self.align_model = AlignLoss_CrossAttention()  # 无参数需要更新
+        self.align_model = None  # 无参数需要更新
         # TODO
         # self.context_vec = nn.Parameter(torch.randn((1, dim_str)))
         # self.act = nn.Softmax(dim=1)
         # self.scale = torch.Tensor([1. / np.sqrt(self.dim_str)]).cuda()
-        self.fusion_model = Attention_Fusion(dim_str)
-        # self.fusion_model = SSM_Fusion(dim_str)
+        # self.fusion_model = Attention_Fusion(dim_str)
+        self.fusion_model = SSM_Fusion(dim_str)
         # TODO
 
         ent_encoder_layer = nn.TransformerEncoderLayer(dim_str, num_head, dim_hid, dropout, batch_first=True)
@@ -153,8 +153,8 @@ class Siamese(nn.Module):
         vis_embdding = self.ent_encoder(ent_seq2)[:, 0]
         txt_embdding = self.ent_encoder(ent_seq3)[:, 0]
 
-        cands = torch.stack([ent_tkn2, str_embdding, vis_embdding, txt_embdding],
-                            dim=1)  # [batch_size, num_modality, str_dim]
+        # cands = torch.stack([ent_tkn2, str_embdding, vis_embdding, txt_embdding],
+        #                     dim=1)  # [batch_size, num_modality, str_dim]
         # x = torch.arange(self.num_ent).cuda()
 
         # TODO
@@ -162,12 +162,12 @@ class Siamese(nn.Module):
         # att_weights = torch.sum(context_vec * cands * self.scale, dim=-1, keepdim=True)  # [batch_size, num_modality, 1]
         # att_weights = self.act(att_weights)  # [batch_size, num_modality, 1]
         # ent_embs = torch.sum(att_weights * cands, dim=1)  # [batch_size, str_dim]
-        ent_embs = self.fusion(cands)
+        cands = torch.stack([ent_tkn2, str_embdding, vis_embdding, txt_embdding], dim=1)
+        ent_embs, align_loss = self.align_fusion(cands)
         # TODO
 
         rep_rel_str = self.embdr(self.str_rel_ln(self.rel_embeddings))
-        return torch.cat([ent_embs, self.lp_token], dim=0), rep_rel_str.squeeze(dim=1), [str_embdding, vis_embdding,
-                                                                                         txt_embdding]
+        return torch.cat([ent_embs, self.lp_token], dim=0), rep_rel_str.squeeze(dim=1), align_loss
 
     def score(self, emb_ent, emb_rel, triples):
         mask = (triples == self.num_ent + self.num_rel)  # [batch_size, 3]
@@ -199,18 +199,18 @@ class Siamese(nn.Module):
                 raise NotImplementedError
         return scores
 
-    def align(self, emb_list):
+    def align_fusion(self, emb_list):
         """
         模态对齐
         :param emb_list:
         :return:
         """
-        str_embdding, vis_embdding, txt_embdding = emb_list
-        align_loss = self.align_model(str_embdding, vis_embdding, txt_embdding)
-        return align_loss
-
-    def fusion(self, x):
-        return self.fusion_model(x)
+        ent_tkn2, str_embedding, vis_embedding, txt_embedding = emb_list[:, 0, :], emb_list[:, 1, :], emb_list[:, 2,
+                                                                                                      :], emb_list[:, 3,
+                                                                                                          :]
+        # align_loss = self.align_model(str_embedding, vis_embedding, txt_embedding)
+        align_loss = None
+        return self.fusion_model(emb_list), align_loss
 
     # 方式四. pos_neg_logits_vectorized_topk(选取top_k)
     def pos_neg_logits_vectorized_topk(self, score, label, filter_mask, neg_num=3):
@@ -297,7 +297,6 @@ class AlignLoss_Parameter(nn.Module):
         super(AlignLoss_Parameter, self).__init__()
         self.neg_num = 16
         self.temperature = nn.Parameter(torch.tensor(0.02))
-        self.proj = nn.Linear(256, 1024)
 
     def structure_modality_contrastive(self, str_embedding, mod_embedding):
         """
@@ -305,8 +304,8 @@ class AlignLoss_Parameter(nn.Module):
         :param mod_embedding: [num_ent, emb_dim]
         :return:
         """
-        str_embedding = torch.nn.functional.normalize(self.proj(str_embedding), p=2, dim=-1, eps=1e-5)
-        mod_embedding = torch.nn.functional.normalize(self.proj(mod_embedding), p=2, dim=-1, eps=1e-5)
+        str_embedding = torch.nn.functional.normalize(str_embedding, p=2, dim=-1, eps=1e-5)
+        mod_embedding = torch.nn.functional.normalize(mod_embedding, p=2, dim=-1, eps=1e-5)
         bs, _ = str_embedding.size()
         neg_sample_id = torch.randint(0, bs, [bs, self.neg_num])  # [num_ent, num_sample]
         neg_str_feat = str_embedding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
@@ -335,7 +334,6 @@ class AlignLoss_Triangle(nn.Module):
         super().__init__()
         self.neg_num = 16
         self.temperature = nn.Parameter(torch.tensor(0.02))
-        self.proj = nn.Linear(256, 1024)
 
     def triangle_area(self, x, y, z):
         """
@@ -352,9 +350,9 @@ class AlignLoss_Triangle(nn.Module):
 
     def forward(self, str_emb, vis_emb, txt_emb):
         # 1. normalize
-        str_emb = F.normalize(self.proj(str_emb), dim=-1)
-        vis_emb = F.normalize(self.proj(vis_emb), dim=-1)
-        txt_emb = F.normalize(self.proj(txt_emb), dim=-1)
+        str_emb = F.normalize(str_emb, dim=-1)
+        vis_emb = F.normalize(vis_emb, dim=-1)
+        txt_emb = F.normalize(txt_emb, dim=-1)
 
         bs, _ = str_emb.size()
 
@@ -376,93 +374,6 @@ class AlignLoss_Triangle(nn.Module):
         labels = torch.zeros(bs, dtype=torch.long, device=str_emb.device)
         loss = F.cross_entropy(logits, labels)
 
-        return loss
-
-
-class CrossAttention(nn.Module):
-    def __init__(self, emb_dim=256, num_heads=1):
-        super(CrossAttention, self).__init__()
-        self.neg_num = 16
-        self.temperature = nn.Parameter(torch.tensor(0.02))
-        self.num_heads = num_heads
-        self.emb_dim = emb_dim
-        assert emb_dim % num_heads == 0, "emb_dim must be divisible by num_heads"
-        self.head_dim = emb_dim // num_heads
-
-        # Q, K, V 的线性投影
-        self.q_proj = nn.Linear(emb_dim, emb_dim)
-        self.k_proj = nn.Linear(emb_dim, emb_dim)
-        self.v_proj = nn.Linear(emb_dim, emb_dim)
-        self.out_proj = nn.Linear(emb_dim, emb_dim)
-
-    def forward(self, query, key, value):
-        B, Lq, _ = query.size()
-        _, Lk, _ = key.size()
-
-        Q = self.q_proj(query).view(B, Lq, self.num_heads, self.head_dim).transpose(1, 2)
-        K = self.q_proj(key).view(B, Lk, self.num_heads, self.head_dim).transpose(1, 2)
-        V = self.q_proj(value).view(B, Lk, self.num_heads, self.head_dim).transpose(1, 2)
-
-        attn_scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.head_dim ** 0.5)  # [batch_size, num_head, Lq, Lk]
-        attn_probs = F.softmax(attn_scores, dim=-1)  # [batch_size, num_head, Lq, Lk]
-
-        attn_output = torch.matmul(attn_probs, V)  # [batch_size, num_head, Lq, head_dim]
-        attn_output = attn_output.transpose(1, 2).contiguous().view(B, Lq, self.emb_dim)  # [batch_size, Lq, emb_dim]
-
-        output = self.out_proj(attn_output)  # [batch_size, Lq, emb_dim]
-        return output, attn_probs
-
-
-class AlignLoss_CrossAttention(nn.Module):
-    def __init__(self, emb_dim=256, neg_num=16, num_heads=2):
-        super().__init__()
-        self.neg_num = neg_num
-        self.temperature = nn.Parameter(torch.tensor(0.02))
-        self.emb_dim = emb_dim
-
-        # Cross-Attention 模块
-        self.cross_str_vis = CrossAttention(emb_dim, num_heads)
-        self.cross_str_txt = CrossAttention(emb_dim, num_heads)
-
-    def structure_aware_modality_align(self, str_embedding, mod_embedding):
-        """
-        :param str_embedding:
-        :param mod_embedding:
-        :return:
-        """
-        str_embedding = torch.nn.functional.normalize(str_embedding, p=2, dim=-1, eps=1e-5)  # [num_ent, emb_dim]
-        mod_embedding = torch.nn.functional.normalize(mod_embedding, p=2, dim=-1, eps=1e-5)  # [num_ent, emb_dim]
-        bs, _ = str_embedding.size()
-        neg_sample_id = torch.randint(0, bs, [bs, self.neg_num])  # [num_ent, num_sample]
-        neg_str_feat = str_embedding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
-        neg_mod_feat = mod_embedding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
-        str_samples = torch.cat([str_embedding.unsqueeze(1), neg_str_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
-        mod_samples = torch.cat([mod_embedding.unsqueeze(1), neg_mod_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
-        s2m_score = torch.matmul(mod_samples, str_embedding.unsqueeze(2)).squeeze(
-            2) / self.temperature  # [num_ent, 1+num_sample]
-        m2s_score = torch.matmul(str_samples, mod_embedding.unsqueeze(2)).squeeze(
-            2) / self.temperature  # [num_ent, 1+num_sample]
-        label = torch.zeros([bs, ], dtype=torch.long).to(str_embedding.device)
-        s2v_loss = torch.nn.functional.cross_entropy(s2m_score, label)
-        v2s_loss = torch.nn.functional.cross_entropy(m2s_score, label)
-        svc_loss = 0.5 * (s2v_loss + v2s_loss)
-        return svc_loss
-
-    def forward(self, str_embedding, vis_embedding, txt_embedding):
-        # Cross-Attention 对齐
-        aligned_str_vis, _ = self.cross_str_vis(str_embedding.unsqueeze(1), vis_embedding.unsqueeze(1),
-                                                vis_embedding.unsqueeze(1))
-        aligned_str_txt, _ = self.cross_str_txt(str_embedding.unsqueeze(1), txt_embedding.unsqueeze(1),
-                                                txt_embedding.unsqueeze(1))
-
-        # squeeze 去掉 sequence 维度
-        aligned_str_vis = aligned_str_vis.squeeze(1)
-        aligned_str_txt = aligned_str_txt.squeeze(1)
-
-        # 计算两个模态对齐损失
-        loss_1 = self.structure_aware_modality_align(aligned_str_vis, vis_embedding)
-        loss_2 = self.structure_aware_modality_align(aligned_str_txt, txt_embedding)
-        loss = loss_1 + loss_2
         return loss
 
 
