@@ -1,9 +1,5 @@
-import os
-import time
-
 import torch
 import torch.nn as nn
-import numpy as np
 import torch.nn.functional as F
 
 
@@ -86,7 +82,7 @@ class Siamese(nn.Module):
         self.proj_ent_txt = nn.Linear(768, dim_str)
 
         # TODO
-        self.align_model = None  # 无参数需要更新
+        self.align_model = AlignLoss_Triangle()  # 无参数需要更新
         # TODO
         # self.context_vec = nn.Parameter(torch.randn((1, dim_str)))
         # self.act = nn.Softmax(dim=1)
@@ -205,11 +201,10 @@ class Siamese(nn.Module):
         :param emb_list:
         :return:
         """
-        ent_tkn2, str_embedding, vis_embedding, txt_embedding = emb_list[:, 0, :], emb_list[:, 1, :], emb_list[:, 2,
-                                                                                                      :], emb_list[:, 3,
-                                                                                                          :]
-        # align_loss = self.align_model(str_embedding, vis_embedding, txt_embedding)
-        align_loss = None
+        ent_tkn2 = emb_list[:, 0, :]
+        str_embedding, vis_embedding, txt_embedding = emb_list[:, 1, :], emb_list[:, 2, :], emb_list[:, 3, :]
+        align_loss = self.align_model(str_embedding, vis_embedding, txt_embedding)
+        # align_loss = None
         return self.fusion_model(emb_list), align_loss
 
     # 方式四. pos_neg_logits_vectorized_topk(选取top_k)
@@ -292,47 +287,11 @@ class AlignLoss(nn.Module):
         return loss
 
 
-class AlignLoss_Parameter(nn.Module):
-    def __init__(self):
-        super(AlignLoss_Parameter, self).__init__()
-        self.neg_num = 16
-        self.temperature = nn.Parameter(torch.tensor(0.02))
-
-    def structure_modality_contrastive(self, str_embedding, mod_embedding):
-        """
-        :param str_embedding: [num_ent, emb_dim]
-        :param mod_embedding: [num_ent, emb_dim]
-        :return:
-        """
-        str_embedding = torch.nn.functional.normalize(str_embedding, p=2, dim=-1, eps=1e-5)
-        mod_embedding = torch.nn.functional.normalize(mod_embedding, p=2, dim=-1, eps=1e-5)
-        bs, _ = str_embedding.size()
-        neg_sample_id = torch.randint(0, bs, [bs, self.neg_num])  # [num_ent, num_sample]
-        neg_str_feat = str_embedding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
-        neg_mod_feat = mod_embedding[neg_sample_id]  # [num_ent, num_sample, emb_dim]
-        str_samples = torch.cat([str_embedding.unsqueeze(1), neg_str_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
-        mod_samples = torch.cat([mod_embedding.unsqueeze(1), neg_mod_feat], 1)  # [num_ent, 1+num_sample, emb_dim]
-        s2m_score = torch.matmul(mod_samples, str_embedding.unsqueeze(2)).squeeze(
-            2) / self.temperature  # [num_ent, 1+num_sample]
-        m2s_score = torch.matmul(str_samples, mod_embedding.unsqueeze(2)).squeeze(
-            2) / self.temperature  # [num_ent, 1+num_sample]
-        label = torch.zeros([bs, ], dtype=torch.long).to(str_embedding.device)  # [num_ent] 第0个是正确实体
-        s2v_loss = torch.nn.functional.cross_entropy(s2m_score, label)
-        v2s_loss = torch.nn.functional.cross_entropy(m2s_score, label)
-        svc_loss = 0.5 * (s2v_loss + v2s_loss)
-        return svc_loss
-
-    def forward(self, str_emb, vis_emb, txt_emb):
-        loss1 = self.structure_modality_contrastive(str_emb, vis_emb)
-        loss2 = self.structure_modality_contrastive(str_emb, txt_emb)
-        loss = loss1 + loss2
-        return loss
-
-
 class AlignLoss_Triangle(nn.Module):
     def __init__(self):
         super().__init__()
         self.neg_num = 16
+        # self.temperature = 0.02
         self.temperature = nn.Parameter(torch.tensor(0.02))
 
     def triangle_area(self, x, y, z):
@@ -345,7 +304,7 @@ class AlignLoss_Triangle(nn.Module):
         uu = torch.sum(u * u, dim=-1)
         vv = torch.sum(v * v, dim=-1)
         uv = torch.sum(u * v, dim=-1)
-        area = 0.5 * (uu * vv - uv * uv)
+        area = (uu * vv - uv * uv)
         return area
 
     def forward(self, str_emb, vis_emb, txt_emb):
@@ -380,6 +339,79 @@ class AlignLoss_Triangle(nn.Module):
 """
     模态融合
 """
+
+
+class MLPFusion(nn.Module):
+    """
+
+    """
+
+    def __init__(self, dim, num_modality=4, hidden_dim=2048, output_dim=256, dropout=0.1):
+        """
+        :param dim: 单个模态的特征维度（假设所有模态相同）
+        :param num_modality: 模态数量
+        :param hidden_dim: MLP隐藏层维度
+        :param output_dim: 融合输出维度
+        """
+        super().__init__()
+        self.num_modality = num_modality
+
+        # 融合 MLP
+        self.mlp = nn.Sequential(
+            nn.Linear(dim * num_modality, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def forward(self, x):
+        """
+        :param x: [batch_size, num_modality, dim]
+        :return: [batch_size, output_dim]
+        """
+        # 将多模态特征在最后一维拼接
+        batch_size = x.shape[0]
+        x = x.view(batch_size, -1)  # [batch_size, num_modality * dim]
+
+        # MLP融合
+        x_fused = self.mlp(x)
+        return x_fused
+
+
+class DotFusion(nn.Module):
+    """
+        dot-product融合
+    """
+
+    def __init__(self, dim, num_modality, output_dim=None):
+        """
+        :param dim: 单模态特征维度
+        :param num_modality: 模态数量
+        :param output_dim: 融合输出维度（None表示保持dim）
+        """
+        super().__init__()
+        self.dim = dim
+        self.num_modality = num_modality
+        self.output_dim = output_dim if output_dim is not None else dim
+        self.proj = nn.Linear(dim, self.output_dim) if self.output_dim != dim else None
+
+    def forward(self, x):
+        """
+        x: [batch_size, num_modality, dim]
+        return: [batch_size, output_dim]
+        """
+        G = torch.bmm(x, x.transpose(1, 2))
+
+        # 将点积矩阵与原特征相乘融合
+        x_fused = torch.bmm(G, x)  # [batch, num_modality, dim]
+
+        # 对模态维度求均值，得到最终融合特征
+        x_fused = x_fused.mean(dim=1)  # [batch, dim]
+
+        if self.proj:
+            x_fused = self.proj(x_fused)
+
+        return x_fused
 
 
 class Attention_Fusion(nn.Module):
@@ -424,11 +456,15 @@ class SSM_Fusion(nn.Module):
         super(SSM_Fusion, self).__init__()
         self.in_proj = nn.Linear(dim, dim * 2)
         self.out_proj = nn.Linear(dim, dim)
-        self.h = nn.Parameter(torch.zeros(dim))
+
+        self.norm_x = nn.LayerNorm(dim)
+        self.norm_h = nn.LayerNorm(dim)
 
     def forward(self, x, return_sequence=False):
         B, L, D = x.shape
-        h = self.h.unsqueeze(0).expand(B, -1)
+
+        x = self.norm_x(x)
+        h = torch.zeros(B, D, device=x.device)
 
         states = []
 
@@ -438,10 +474,14 @@ class SSM_Fusion(nn.Module):
             a = torch.sigmoid(a)
             b = torch.tanh(b)
             h = a * h + (1 - a) * b
+            h = self.norm_h(h)
             states.append(h.unsqueeze(1))
 
         y = torch.cat(states, dim=1)
         y = self.out_proj(y)
+
+        # 残差连接
+        y = y + x
 
         if return_sequence:
             return y

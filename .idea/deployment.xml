@@ -23,6 +23,41 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="ps@172.17.169.70:34 password (4)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.32.139:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_630" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.32.139:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.32.139:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.32.139:22 password (4)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="root@36.140.32.150:22 password">
         <serverdata>
           <mappings>
@@ -33,7 +68,14 @@
       <paths name="root@36.140.32.150:22 password (2)">
         <serverdata>
           <mappings>
-            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.32.150:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
@@ -41,6 +83,13 @@
         <serverdata>
           <mappings>
             <mapping deploy="/mnt/data2/zhz/lzy/FLARE" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="root@36.140.33.159:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

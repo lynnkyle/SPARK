@@ -4,7 +4,7 @@ import argparse
 import logging
 import random
 
-from datasets import tqdm
+from tqdm import tqdm
 
 import numpy as np
 
@@ -16,7 +16,7 @@ from dataset import KG
 from merge_tokens import get_entity_visual_tokens, get_entity_textual_tokens
 from utils import calculate_rank, metrics
 
-torch.cuda.set_device(1)
+torch.cuda.set_device(0)
 
 OMP_NUM_THREADS = 8
 torch.backends.cudnn.benchmark = True
@@ -42,8 +42,9 @@ if __name__ == '__main__':
     parser.add_argument('--lr', default=5e-4, type=float)
     parser.add_argument('--dim', default=256, type=int)
     parser.add_argument('--num_epoch', default=3000, type=int)
-    parser.add_argument('--valid_epoch', default=100, type=int)
-    parser.add_argument('--exp', default='Siamese_SSM')
+    parser.add_argument('--valid_epoch', default=10, type=int)
+    parser.add_argument('--log_epoch', default=100, type=int)
+    parser.add_argument('--exp', default='Siamese')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -61,7 +62,7 @@ if __name__ == '__main__':
     parser.add_argument('--cont', action='store_true')  # deprecate
     parser.add_argument('--step_size', default=50, type=int)
     parser.add_argument('--max_vis_token', default=16, type=int)
-    parser.add_argument('--max_txt_token', default=16, type=int)
+    parser.add_argument('--max_txt_token', default=24, type=int)
     parser.add_argument('--score_function', default="tucker", type=str)
 
     # MKG-W
@@ -144,7 +145,7 @@ if __name__ == '__main__':
 
     cross_entropy_loss_fn = nn.CrossEntropyLoss(label_smoothing=args.smoothing)
     # TODO
-    # margin_ranking_loss_fn = torch.nn.MarginRankingLoss(margin=0.1)
+    margin_ranking_loss_fn = torch.nn.MarginRankingLoss(margin=0.1)
     # TODO
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
@@ -171,14 +172,15 @@ if __name__ == '__main__':
             scores = model.score(ent_embs, rel_embs, batch.cuda())
             loss = cross_entropy_loss_fn(scores, label.cuda())
             # TODO
-            # loss += align_loss * 0.5
+            loss += align_loss * 0.5
+            align_total_loss += align_loss
             # TODO
-            # pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
-            #                                                             neg_num=3)
-            # pos_expand = pos_logit.unsqueeze(1).expand_as(neg_logit)  # [B, n]
-            # target = torch.ones_like(neg_logit)
-            # res = margin_ranking_loss_fn(pos_expand.reshape(-1), neg_logit.reshape(-1), target.reshape(-1))
-            # loss += 15 * res
+            pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
+                                                                        neg_num=3)
+            pos_expand = pos_logit.unsqueeze(1).expand_as(neg_logit)  # [B, n]
+            target = torch.ones_like(neg_logit)
+            res = margin_ranking_loss_fn(pos_expand.reshape(-1), neg_logit.reshape(-1), target.reshape(-1))
+            loss += 15 * res
             # TODO
             total_loss += loss.item()
             optimizer.zero_grad()
@@ -203,7 +205,7 @@ if __name__ == '__main__':
                 os.makedirs(save_dir, exist_ok=True)
                 # np.save(os.path.join(save_dir, f'ent_embeddings_epoch_{epoch}.npy'), ent_embs.cpu().detach().numpy())
                 lp_list_rank = []
-                for triplet in tqdm(kg.valid):
+                for triplet in tqdm(kg.valid, miniters=len(kg.valid), mininterval=9999):
                     h, r, t = triplet
                     head_score = model.score(ent_embs, rel_embs, torch.tensor(
                         [[kg.num_ent + kg.num_rel, r + kg.num_ent, t + kg.num_rel]]).cuda())[0].detach().cpu().numpy()
@@ -217,15 +219,16 @@ if __name__ == '__main__':
 
                 lp_list_rank = np.array(lp_list_rank)
                 mr, mrr, hit10, hit3, hit1 = metrics(lp_list_rank)
-                logger.info("Link Prediction on Validation Set")
-                logger.info(f"MR: {mr}")
-                logger.info(f"MRR: {mrr}")
-                logger.info(f"Hit10: {hit10}")
-                logger.info(f"Hit3: {hit3}")
-                logger.info(f"Hit1: {hit1}")
+                if epoch % args.log_epoch == 0:
+                    logger.info("Link Prediction on Validation Set")
+                    logger.info(f"MR: {mr}")
+                    logger.info(f"MRR: {mrr}")
+                    logger.info(f"Hit10: {hit10}")
+                    logger.info(f"Hit3: {hit3}")
+                    logger.info(f"Hit1: {hit1}")
 
                 lp_list_rank = []
-                for triplet in tqdm(kg.test):
+                for triplet in tqdm(kg.test, miniters=len(kg.test), mininterval=9999):
                     h, r, t = triplet
                     head_score = model.score(ent_embs, rel_embs, torch.tensor(
                         [[kg.num_ent + kg.num_rel, r + kg.num_ent, t + kg.num_rel]]).cuda())[0].detach().cpu().numpy()
@@ -239,12 +242,13 @@ if __name__ == '__main__':
 
                 lp_list_rank = np.array(lp_list_rank)
                 mr, mrr, hit10, hit3, hit1 = metrics(lp_list_rank)
-                logger.info("Link Prediction on Test Set")
-                logger.info(f"MR: {mr}")
-                logger.info(f"MRR: {mrr}")
-                logger.info(f"Hit10: {hit10}")
-                logger.info(f"Hit3: {hit3}")
-                logger.info(f"Hit1: {hit1}")
+                if epoch % args.log_epoch == 0:
+                    logger.info("Link Prediction on Test Set")
+                    logger.info(f"MR: {mr}")
+                    logger.info(f"MRR: {mrr}")
+                    logger.info(f"Hit10: {hit10}")
+                    logger.info(f"Hit3: {hit3}")
+                    logger.info(f"Hit1: {hit1}")
 
             if best_mrr < mrr:
                 best_mrr = mrr
