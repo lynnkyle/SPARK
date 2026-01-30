@@ -104,7 +104,9 @@ if __name__ == '__main__':
     parser.add_argument('--cont', action='store_true')  # deprecate
     parser.add_argument('--step_size', default=50, type=int)
     parser.add_argument('--max_vis_token', default=16, type=int)
-    parser.add_argument('--max_txt_token', default=16, type=int)
+    parser.add_argument('--max_txt_token', default=24, type=int)
+    parser.add_argument('--fusion_function', default="attention", type=str)
+    parser.add_argument('--score_bert', default=True, type=bool)
     parser.add_argument('--score_function', default="tucker", type=str)
 
     # MKG-W
@@ -157,19 +159,21 @@ if __name__ == '__main__':
         txt_dropout=args.txt_dropout,
         visual_token_index=visual_token_index,
         text_token_index=text_token_index,
+        fusion_function=args.fusion_function,
+        score_bert=args.score_bert,
         score_function=args.score_function
     ).cuda()
-    model.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['model_state_dict'])
+    model.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['model_state_dict'])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
-    optimizer.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['optimizer_state_dict'])
+    optimizer.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['optimizer_state_dict'])
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.step_size, T_mult=2)
-    scheduler.load_state_dict(torch.load(f'ckpt/db15k.ckpt')['scheduler_state_dict'])
+    scheduler.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['scheduler_state_dict'])
 
-    # valid_eval_metric(key="valid", val=kg.valid)
-    # valid_eval_metric(key="test", val=kg.test)
-    res1 = valid_eval_metric_topK(key="valid", val=kg.valid)
-    print(res1)
-    res2 = valid_eval_metric_topK(key="test", val=kg.test)
-    print(res2)
+    valid_eval_metric(key="valid", val=kg.valid)
+    valid_eval_metric(key="test", val=kg.test)
+    # res1 = valid_eval_metric_topK(key="valid", val=kg.valid)
+    # print(res1)
+    # res2 = valid_eval_metric_topK(key="test", val=kg.test)
+    # print(res2)

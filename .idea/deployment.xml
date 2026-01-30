@@ -30,27 +30,6 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="root@36.140.32.139:22 password">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/tmp/pycharm_project_630" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="root@36.140.32.139:22 password (2)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
-      <paths name="root@36.140.32.139:22 password (3)">
-        <serverdata>
-          <mappings>
-            <mapping deploy="/mnt/data1/zhz/SPARK" local="$PROJECT_DIR$" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="root@36.140.32.139:22 password (4)">
         <serverdata>
           <mappings>

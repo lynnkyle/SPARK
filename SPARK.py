@@ -22,6 +22,8 @@ class Siamese(nn.Module):
             txt_dropout=0.1,
             visual_token_index=None,
             text_token_index=None,
+            fusion_function="ssm",
+            score_bert=True,
             score_function="tucker"
     ):
         super(Siamese, self).__init__()
@@ -38,7 +40,10 @@ class Siamese(nn.Module):
         self.text_token_index = text_token_index
         self.text_token_embedding = nn.Embedding.from_pretrained(textual_tokens).requires_grad_(False)
 
-        self.bert = True
+        self.score_bert = score_bert
+        # TODO
+        self.fusion_function = fusion_function
+        # TODO
         self.score_function = score_function
 
         self.visual_token_embedding.requires_grad_(False)
@@ -87,8 +92,12 @@ class Siamese(nn.Module):
         # self.context_vec = nn.Parameter(torch.randn((1, dim_str)))
         # self.act = nn.Softmax(dim=1)
         # self.scale = torch.Tensor([1. / np.sqrt(self.dim_str)]).cuda()
-        # self.fusion_model = Attention_Fusion(dim_str)
-        self.fusion_model = SSM_Fusion(dim_str)
+        if self.fusion_function == "ssm":
+            self.fusion_model = SSM_Fusion(dim_str)
+        elif self.fusion_function == "attention":
+            self.fusion_model = Attention_Fusion(dim_str)
+        else:
+            raise NotImplementedError
         # TODO
 
         ent_encoder_layer = nn.TransformerEncoderLayer(dim_str, num_head, dim_hid, dropout, batch_first=True)
@@ -101,17 +110,28 @@ class Siamese(nn.Module):
 
         self.num_con = 256
         self.num_vis = ent_vis_mask.shape[1]
-        if self.score_function == "tucker":
-            self.tucker_decoder = TuckER_Decoder(dim_str, dim_str)
-        elif self.score_function == "transe":
-            self.transE_decoder = TransE_Decoder()
+
+        # TODO
+        if self.score_function == "transe":
+            self.triple_decoder = TransE_Decoder(dim_str, dim_str)
         elif self.score_function == "rotate":
-            self.rotate_decoder = RotatE_Decoder(dim_str)
+            self.triple_decoder = RotatE_Decoder(dim_str, dim_str)
+        elif self.score_function == "rescal":
+            self.triple_decoder = Rescal_Decoder(dim_str, num_rel)
+        elif self.score_function == "distmult":
+            self.triple_decoder = DistMult_Decoder(dim_str, dim_str)
+        elif self.score_function == "complex":
+            self.triple_decoder = ComplEx_Decoder(dim_str, dim_str)
+        elif self.score_function == "tucker":
+            self.triple_decoder = TuckER_Decoder(dim_str, dim_str)
         else:
-            pass
+            raise NotImplementedError
+        # TODO
+
         self.init_weights()
-        # torch.save(self.visual_token_embedding, open("tokens/visual_token.pth", "wb"))
-        # torch.save(self.text_token_embedding, open("tokens/textual_token.pth", "wb"))
+
+    # torch.save(self.visual_token_embedding, open("tokens/visual_token.pth", "wb"))
+    # torch.save(self.text_token_embedding, open("tokens/textual_token.pth", "wb"))
 
     def init_weights(self):
         nn.init.xavier_uniform_(self.ent_embeddings)
@@ -132,7 +152,6 @@ class Siamese(nn.Module):
         nn.init.xavier_uniform_(self.pos_tail)
 
     def forward(self):
-
         ent_tkn = self.ent_token.tile(self.num_ent, 1, 1)
         rep_ent_str = self.embdr(self.str_ent_ln(self.ent_embeddings)) + self.pos_str_ent
 
@@ -166,33 +185,29 @@ class Siamese(nn.Module):
         return torch.cat([ent_embs, self.lp_token], dim=0), rep_rel_str.squeeze(dim=1), align_loss
 
     def score(self, emb_ent, emb_rel, triples):
-        mask = (triples == self.num_ent + self.num_rel)  # [batch_size, 3]
-        if self.bert == False:
-            if self.score_function == "transE":
-                scores = self.TransE(emb_ent, emb_rel, triples, mask)
-            elif self.score_function == "rotatE":
-                scores = self.RotatE(emb_ent, emb_rel, triples, mask)
-            else:
-                raise NotImplementedError
+        h_seq = emb_ent[triples[:, 0] - self.num_rel].unsqueeze(dim=1) + self.pos_head
+        r_seq = emb_rel[triples[:, 1] - self.num_ent].unsqueeze(dim=1) + self.pos_rel
+        t_seq = emb_ent[triples[:, 2] - self.num_rel].unsqueeze(dim=1) + self.pos_tail
+
+        dec_seq = torch.cat([h_seq, r_seq, t_seq], dim=1)
+        output_dec = self.decoder(dec_seq)
+        rel_emb = output_dec[:, 1, :]
+        ctx_emb = output_dec[triples == self.num_ent + self.num_rel]
+        if self.score_function == "transe":
+            scores = self.triple_decoder(ctx_emb, rel_emb, emb_ent)
+        elif self.score_function == "rotate":
+            scores = self.triple_decoder(ctx_emb, rel_emb, emb_ent)
+        elif self.score_function == "rescal":
+            r_id = triples[:, 1] - self.num_ent
+            scores = self.triple_decoder(ctx_emb, r_id, emb_ent)
+        elif self.score_function == "distmult":
+            scores = self.triple_decoder(ctx_emb, rel_emb, emb_ent)
+        elif self.score_function == "complex":
+            scores = self.triple_decoder(ctx_emb, rel_emb, emb_ent)
+        elif self.score_function == "tucker":
+            scores = self.triple_decoder(ctx_emb, rel_emb, emb_ent)
         else:
-            # bert
-            h_seq = emb_ent[triples[:, 0] - self.num_rel].unsqueeze(dim=1) + self.pos_head
-            r_seq = emb_rel[triples[:, 1] - self.num_ent].unsqueeze(dim=1) + self.pos_rel
-            t_seq = emb_ent[triples[:, 2] - self.num_rel].unsqueeze(dim=1) + self.pos_tail
-
-            dec_seq = torch.cat([h_seq, r_seq, t_seq], dim=1)
-            output_dec = self.decoder(dec_seq)
-            rel_emb = output_dec[:, 1, :]
-            ctx_emb = output_dec[triples == self.num_ent + self.num_rel]
-
-            if self.score_function == "rescal":
-                scores = self.tucker_decoder(ctx_emb, rel_emb, emb_ent)
-            elif self.score_function == "complex":
-                scores = self.tucker_decoder(ctx_emb, rel_emb, emb_ent)
-            elif self.score_function == "tucker":
-                scores = self.tucker_decoder(ctx_emb, rel_emb, emb_ent)
-            else:
-                raise NotImplementedError
+            raise NotImplementedError
         return scores
 
     def align_fusion(self, emb_list):
@@ -201,10 +216,12 @@ class Siamese(nn.Module):
         :param emb_list:
         :return:
         """
-        ent_tkn2 = emb_list[:, 0, :]
-        str_embedding, vis_embedding, txt_embedding = emb_list[:, 1, :], emb_list[:, 2, :], emb_list[:, 3, :]
-        align_loss = self.align_model(str_embedding, vis_embedding, txt_embedding)
-        # align_loss = None
+        if self.fusion_function == 'ssm':
+            ent_tkn2 = emb_list[:, 0, :]
+            str_embedding, vis_embedding, txt_embedding = emb_list[:, 1, :], emb_list[:, 2, :], emb_list[:, 3, :]
+            align_loss = self.align_model(str_embedding, vis_embedding, txt_embedding)
+        else:
+            align_loss = None
         return self.fusion_model(emb_list), align_loss
 
     # 方式四. pos_neg_logits_vectorized_topk(选取top_k)
@@ -440,10 +457,7 @@ class Attention_Fusion(nn.Module):
             head_output = torch.sum(att_weights * x, dim=1)  # [batch_size, dim]
             head_outputs.append(head_output)
         multi_head_out = torch.cat(head_outputs, dim=-1)
-        if self.num_heads == 1:
-            ent_embs = multi_head_out
-        else:
-            ent_embs = self.out_proj(multi_head_out)
+        ent_embs = self.out_proj(multi_head_out)
         return ent_embs
 
 
@@ -496,42 +510,23 @@ class SSM_Fusion(nn.Module):
 
 class TransE_Decoder(nn.Module):
     """
-        TransE 得分函数
+        TuckER 得分函数
     """
 
-    def __init__(self, num_ent, num_rel, margin=1, p_norm=1):
+    def __init__(self, e_dim, r_dim):
+        assert e_dim == r_dim
         super(TransE_Decoder, self).__init__()
-        self.margin = margin
-        self.p_norm = p_norm
-        self.num_ent = num_ent
-        self.num_rel = num_rel
 
-    def forward(self, emb_ent, emb_rel, triples, mask):
+    def forward(self, ctx_emb, rel_emb, emb_ent):
         """
-        :param emb_ent: [num_ent, emb_dim]
-        :param emb_rel: [num_ent, rel_dim]
-        :param triples: [batch_size, 3]
-        :param mask: [batch_size, 3]
-        :return:
+        :param ctx_emb: [batch_size, emb_dim]
+        :param rel_emb: [batch_size, rel_dim]
+        :param emb_ent:
+        :return: [batch_size, emb_dim]
         """
-        emb_ent = F.normalize(emb_ent, p=2, dim=-1)
-        emb_rel = F.normalize(emb_rel, p=2, dim=-1)
-
-        h = emb_ent[triples[:, 0] - self.num_rel]
-        r = emb_rel[triples[:, 1] - self.num_ent]
-        t = emb_ent[triples[:, 2] - self.num_rel]
-
-        h_mask, t_mask = mask[:, 0], mask[:, 2]
-
-        query = torch.zeros_like(h)
-        if t_mask.any():  # 预测尾实体
-            query[t_mask] = h[t_mask] + r[t_mask]
-        elif h_mask.any():  # 预测头实体
-            query[h_mask] = t[h_mask] - r[h_mask]
-        else:
-            raise NotImplementedError
-        score = torch.matmul(query, emb_ent[:-1].transpose(1, 0))
-        return score
+        x = ctx_emb + rel_emb
+        scores = torch.mm(x, emb_ent[:-1].transpose(1, 0))
+        return scores
 
 
 class RotatE_Decoder(nn.Module):
@@ -539,13 +534,12 @@ class RotatE_Decoder(nn.Module):
         RotatE 得分函数
     """
 
-    def __init__(self, dim, margin=1):
+    def __init__(self, e_dim, r_dim):
         super(RotatE_Decoder, self).__init__()
-        self.margin = margin
-        self.dim = dim // 2
-        self.dropout = nn.Dropout(0.3)
+        assert e_dim == r_dim
+        self.dim = e_dim // 2
 
-    def forward(self, emb_ent, emb_rel, triples, mask):
+    def forward(self, ctx_emb, rel_emb, emb_ent):
         """
         :param emb_ent: [num_ent, emb_dim]
         :param emb_rel: [num_ent, rel_dim]
@@ -553,48 +547,29 @@ class RotatE_Decoder(nn.Module):
         :param mask: [batch_size, 3]
         :return:
         """
-        emb_ent = F.normalize(emb_ent, p=2, dim=-1)
-        emb_ent = self.dropout(emb_ent)
 
-        h = emb_ent[triples[:, 0] - self.num_rel]
-        r = emb_rel[triples[:, 1] - self.num_ent]
-        t = emb_ent[triples[:, 2] - self.num_rel]
+        ctx_emb = F.normalize(ctx_emb, p=2, dim=-1)
+        rel_emb = F.normalize(rel_emb, p=2, dim=-1)
 
-        r = F.normalize(r, p=2, dim=-1)
+        ctx_re, ctx_im = torch.chunk(ctx_emb, 2, dim=-1)
 
-        h_re, h_im = torch.chunk(h, 2, dim=-1)
-        t_re, t_im = torch.chunk(t, 2, dim=-1)
-
-        r_phase = r[:, :self.dim]
+        r_phase = rel_emb[:, :self.dim]
         r_re, r_im = torch.cos(r_phase), torch.sin(r_phase)
 
         # 尾实体预测
-        h_rot_re = h_re * r_re - h_im * r_im
-        h_rot_im = h_re * r_im + h_im * r_re
-        h_rot = torch.cat([h_rot_re, h_rot_im], dim=-1)
-        # 头实体预测
-        t_rot_re = t_re * r_re + t_im * r_im
-        t_rot_im = t_im * r_re - t_re * r_im
-        t_rot = torch.cat([t_rot_re, t_rot_im], dim=-1)
+        h_rot_re = ctx_re * r_re - ctx_im * r_im
+        h_rot_im = ctx_re * r_im + ctx_im * r_re
+        x = torch.cat([h_rot_re, h_rot_im], dim=-1)
 
-        h_mask, t_mask = mask[:, 0], mask[:, 2]
-
-        query = torch.zeros_like(h)
-        if t_mask.any():
-            query[t_mask] = h_rot[t_mask]
-        if h_mask.any():
-            query[h_mask] = t_rot[h_mask]
-
-        scores = torch.cdist(query, emb_ent[:-1], p=2)
-
+        scores = torch.mm(x, emb_ent[:-1].transpose(1, 0))
         return scores
 
 
-class RESCAL_Decoder(nn.Module):
-    def __init__(self, e_dim, r_dim):
-        super(RESCAL_Decoder, self).__init__()
+class Rescal_Decoder(nn.Module):
+    def __init__(self, e_dim, num_rel):
+        super(Rescal_Decoder, self).__init__()
         self.M = nn.Parameter(
-            torch.randn(r_dim, e_dim, e_dim)
+            torch.randn(num_rel, e_dim, e_dim)
         )
         nn.init.xavier_uniform_(self.M.data)
 
@@ -604,7 +579,7 @@ class RESCAL_Decoder(nn.Module):
         self.hidden_drop = nn.Dropout(0.4)
         self.output_drop = nn.Dropout(0.5)
 
-    def forward(self, ctx_emb, rel_emb, emb_ent):
+    def forward(self, ctx_emb, rel_id, emb_ent):
         """
         :param ctx_emb:
         :param rel_emb:
@@ -615,7 +590,7 @@ class RESCAL_Decoder(nn.Module):
         x = self.input_drop(x)
         x = x.view(-1, 1, x.size(1))  # [batch_size, 1, ent_dim]
 
-        r_mat = self.M[rel_emb]  # [batch_size, ent_dim, ent_dim]
+        r_mat = self.M[rel_id]  # [batch_size, ent_dim, ent_dim]
         r_mat = self.hidden_drop(r_mat)
 
         x = torch.bmm(x, r_mat)  # [batch_size, 1, ent_dim]
@@ -628,20 +603,19 @@ class RESCAL_Decoder(nn.Module):
         return scores
 
 
-class ComplEx_Decoder(nn.Module):
+class DistMult_Decoder(nn.Module):
     """
-    ComplEx 解码器，接口与 TuckER 一致：
-    forward(ctx_emb, rel_emb) -> 解码后的 query 向量
+        DistMult 得分函数
     """
 
-    def __init__(self, ent_dim, rel_dim):
-        super(ComplEx_Decoder, self).__init__()
-        assert ent_dim == rel_dim
-        self.dim = ent_dim // 2
+    def __init__(self, e_dim, r_dim):
+        super(DistMult_Decoder, self).__init__()
+        assert e_dim == r_dim
         self.input_drop = nn.Dropout(0.3)
-        self.output_drop = nn.Dropout(0.4)
-        self.bn0 = nn.BatchNorm1d(self.dim)
-        self.bn1 = nn.BatchNorm1d(self.dim)
+        self.hidden_drop = nn.Dropout(0.4)
+        self.output_drop = nn.Dropout(0.5)
+        self.bn0 = nn.BatchNorm1d(e_dim)
+        self.bn1 = nn.BatchNorm1d(e_dim)
 
     def forward(self, ctx_emb, rel_emb, emb_ent):
         """
@@ -650,9 +624,46 @@ class ComplEx_Decoder(nn.Module):
         :param emb_ent:
         :return: [num_ent]，解码后的向量
         """
+        x = self.bn0(ctx_emb)
+        x = self.input_drop(x)
+
+        r = self.hidden_drop(rel_emb)
+
+        x = x * r  # [B, D]
+
+        x = self.bn1(x)
+        x = self.output_drop(x)
+
+        scores = torch.mm(x, emb_ent[:-1].transpose(1, 0))  # [B, N-1]
+        return scores
+
+
+class ComplEx_Decoder(nn.Module):
+    """
+    ComplEx 解码器，接口与 TuckER 一致：
+    forward(ctx_emb, rel_emb) -> 解码后的 query 向量
+    """
+
+    def __init__(self, e_dim, r_dim):
+        super(ComplEx_Decoder, self).__init__()
+        assert e_dim == r_dim
+        self.dim = e_dim // 2
+        self.input_drop = nn.Dropout(0.3)
+        self.output_drop = nn.Dropout(0.4)
+        self.bn0 = nn.BatchNorm1d(e_dim)
+        self.bn1 = nn.BatchNorm1d(e_dim)
+
+    def forward(self, ctx_emb, rel_emb, emb_ent):
+        """
+        :param ctx_emb: [batch_size, emb_dim]，实体或上下文向量
+        :param rel_emb: [batch_size, emb_dim]，关系向量
+        :param emb_ent:
+        :return: [num_ent]，解码后的向量
+        """
+        ctx_emb = self.bn0(ctx_emb)
         ctx_emb = F.normalize(ctx_emb, p=2, dim=-1)
         rel_emb = F.normalize(rel_emb, p=2, dim=-1)
-        ctx_emb = self.dropout(ctx_emb)
+        ctx_emb = self.input_drop(ctx_emb)
 
         # 分割实部和虚部
         ctx_re, ctx_im = torch.chunk(ctx_emb, 2, dim=-1)
@@ -663,6 +674,8 @@ class ComplEx_Decoder(nn.Module):
         out_im = ctx_re * r_im + ctx_im * r_re
 
         out = torch.cat([out_re, out_im], dim=-1)
+        out = self.bn1(out)
+        out = self.output_drop(out)
 
         scores = torch.mm(out, emb_ent[:-1].transpose(1, 0))
         return scores
