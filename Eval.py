@@ -104,9 +104,8 @@ if __name__ == '__main__':
     parser.add_argument('--cont', action='store_true')  # deprecate
     parser.add_argument('--step_size', default=50, type=int)
     parser.add_argument('--max_vis_token', default=16, type=int)
-    parser.add_argument('--max_txt_token', default=24, type=int)
-    parser.add_argument('--fusion_function', default="attention", type=str)
-    parser.add_argument('--score_bert', default=True, type=bool)
+    parser.add_argument('--max_txt_token', default=32, type=int)
+    parser.add_argument('--fusion_function', default="ssm", type=str)
     parser.add_argument('--score_function', default="tucker", type=str)
 
     # MKG-W
@@ -138,7 +137,7 @@ if __name__ == '__main__':
     # parser.add_argument('--mu', default=0, type=float)
     args = parser.parse_args()
 
-    kg = KG(args.data, None, max_vis_len=args.max_vis_num)
+    kg = KG(args.data, None)
     kg_loader = torch.utils.data.DataLoader(kg, batch_size=args.batch_size, shuffle=True)
     visual_token_index, visual_key_mask = get_entity_visual_tokens(dataset=args.data, max_num=args.max_vis_token)
     text_token_index, text_key_mask = get_entity_textual_tokens(dataset=args.data, max_num=args.max_txt_token)
@@ -160,16 +159,15 @@ if __name__ == '__main__':
         visual_token_index=visual_token_index,
         text_token_index=text_token_index,
         fusion_function=args.fusion_function,
-        score_bert=args.score_bert,
         score_function=args.score_function
     ).cuda()
-    model.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['model_state_dict'])
+    model.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['model_state_dict'])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
-    optimizer.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['optimizer_state_dict'])
+    optimizer.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['optimizer_state_dict'])
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.step_size, T_mult=2)
-    scheduler.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK/ckpt/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_24tucker_1530.ckpt')['scheduler_state_dict'])
+    scheduler.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['scheduler_state_dict'])
 
     valid_eval_metric(key="valid", val=kg.valid)
     valid_eval_metric(key="test", val=kg.test)
