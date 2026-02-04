@@ -44,7 +44,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epoch', default=3000, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
     parser.add_argument('--log_epoch', default=100, type=int)
-    parser.add_argument('--exp', default='SPARK_DB15K_8_8_k3')
+    parser.add_argument('--exp', default='SPARK_DB15K_0.05_1_k3')
     parser.add_argument('--no_write', action='store_true')
     parser.add_argument('--num_layer_enc_ent', default=1, type=int)
     parser.add_argument('--num_layer_enc_rel', default=1, type=int)
@@ -59,12 +59,14 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=2048, type=int)
     parser.add_argument('--decay', default=0.0, type=float)
     parser.add_argument('--step_size', default=50, type=int)
-    parser.add_argument('--max_vis_token', default=8, type=int)
-    parser.add_argument('--max_txt_token', default=8, type=int)
-    parser.add_argument('--neg_num', default=5, type=int)
+    parser.add_argument('--max_vis_token', default=16, type=int)
+    parser.add_argument('--max_txt_token', default=32, type=int)
+    parser.add_argument('--neg_num', default=3, type=int)
     parser.add_argument('--margin', default=0.1, type=float)
     parser.add_argument('--fusion_function', default="ssm", type=str)
-    parser.add_argument('--score_function', default="distmult", type=str)
+    parser.add_argument('--score_function', default="tucker", type=str)
+    parser.add_argument('--loss_modality', default="0.5", type=float)
+    parser.add_argument('--loss_entity', default="15", type=float)
 
     # MKG-W
     # parser.add_argument('--data', default="MKG-W", type=str)
@@ -174,7 +176,7 @@ if __name__ == '__main__':
             loss = cross_entropy_loss_fn(scores, label.cuda())
             # TODO
             if args.fusion_function == "ssm":
-                loss += align_loss * 0.5
+                loss += align_loss * args.loss_modality
                 align_total_loss += align_loss
             # TODO
             pos_logit, neg_logit = model.pos_neg_logits_vectorized_topk(scores, label.cuda(), filter_mask.cuda(),
@@ -182,7 +184,7 @@ if __name__ == '__main__':
             pos_expand = pos_logit.unsqueeze(1).expand_as(neg_logit)  # [B, n]
             target = torch.ones_like(neg_logit)
             res = margin_ranking_loss_fn(pos_expand.reshape(-1), neg_logit.reshape(-1), target.reshape(-1))
-            loss += 15 * res
+            loss += res * args.loss_entity
             # TODO
             total_loss += loss.item()
             optimizer.zero_grad()

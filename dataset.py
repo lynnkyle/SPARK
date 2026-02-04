@@ -67,9 +67,6 @@ class KG(Dataset):
                     self.train_filter_dict[(h, r, -1)] = []
                 self.train_filter_dict[(h, r, -1)].append(t)
 
-        if data == "DB15K":
-            self.train_filter_dict = self.filter_dict
-
     def __len__(self):
         return len(self.train)
 
@@ -78,11 +75,11 @@ class KG(Dataset):
         if random.random() < 0.5:
             masked_triplet = [self.num_ent + self.num_rel, r + self.num_ent, t + self.num_rel]
             label = h
-            all_possible_labels = self.train_filter_dict.get((-1, r, t), [])
+            all_possible_labels = self.filter_dict.get((-1, r, t), [])
         else:
             masked_triplet = [h + self.num_rel, r + self.num_ent, self.num_ent + self.num_rel]
             label = t
-            all_possible_labels = self.train_filter_dict.get((h, r, -1), [])
+            all_possible_labels = self.filter_dict.get((h, r, -1), [])
         # 构造负采样filter
         filter_mask = torch.zeros((self.num_ent,), dtype=torch.bool)
         if len(all_possible_labels) > 0:
