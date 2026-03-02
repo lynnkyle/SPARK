@@ -16,7 +16,7 @@ from dataset import KG
 from merge_tokens import get_entity_visual_tokens, get_entity_textual_tokens
 from utils import calculate_rank, metrics
 
-# torch.cuda.set_device(0)
+# torch.cuda.set_device(1)
 
 OMP_NUM_THREADS = 8
 torch.backends.cudnn.benchmark = True
@@ -41,7 +41,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', default="DB15K", type=str)
     parser.add_argument('--lr', default=5e-4, type=float)
     parser.add_argument('--dim', default=256, type=int)
-    parser.add_argument('--num_epoch', default=3000, type=int)
+    parser.add_argument('--num_epoch', default=1500, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
     parser.add_argument('--log_epoch', default=100, type=int)
     parser.add_argument('--exp', default='SPARK_DB15K_0.05_1_k3')
@@ -60,11 +60,11 @@ if __name__ == '__main__':
     parser.add_argument('--decay', default=0.0, type=float)
     parser.add_argument('--step_size', default=50, type=int)
     parser.add_argument('--max_vis_token', default=16, type=int)
-    parser.add_argument('--max_txt_token', default=32, type=int)
+    parser.add_argument('--max_txt_token', default=16, type=int)
     parser.add_argument('--neg_num', default=3, type=int)
     parser.add_argument('--margin', default=0.1, type=float)
     parser.add_argument('--fusion_function', default="ssm", type=str)
-    parser.add_argument('--score_function', default="tucker", type=str)
+    parser.add_argument('--score_function', default="transe", type=str)
     parser.add_argument('--loss_modality', default="0.5", type=float)
     parser.add_argument('--loss_entity', default="15", type=float)
 
@@ -114,6 +114,7 @@ if __name__ == '__main__':
                     if arg_name not in ["data", "exp", "no_write", "num_epoch", "cont", "early_stop"]:
                         f.write(f"{arg_name}\t{type(vars(args)[arg_name])}\n")
     else:
+
         file_format = None
     file_handler = logging.FileHandler(f"./logs/{args.exp}/{args.data}/{file_format}.log")
     file_handler.setFormatter(log_format)

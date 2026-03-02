@@ -67,6 +67,72 @@ def valid_eval_metric_topK(key="test", val=None, topK=10):
     return a, b
 
 
+@torch.no_grad()
+def valid_eval_metric_topK(key="test", val=None, topK=10, output_file="predictions.txt"):
+    model.eval()
+    ent_embs, rel_embs, emb_list = model()
+
+    # 打开文件写入
+    with open(output_file, "w", encoding="utf-8") as f:
+        for triplet in tqdm(val, desc=f"Evaluating {key} set"):
+            h, r, t = triplet
+            h_name = kg.id2ent[h] if hasattr(kg, 'id2ent') else str(h)
+            r_name = kg.id2rel[r] if hasattr(kg, 'id2rel') else str(r)
+            t_name = kg.id2ent[t] if hasattr(kg, 'id2ent') else str(t)
+
+            # ========== 预测头实体（h'） ==========
+            head_score = model.score(ent_embs, rel_embs, torch.tensor(
+                [[kg.num_ent + kg.num_rel, r + kg.num_ent, t + kg.num_rel]]).cuda())[0].detach().cpu().numpy()
+
+            # 过滤掉真实头实体和过滤字典中的无效实体
+            valid_heads = []
+            for ent_id, score in enumerate(head_score):
+                if ent_id == h or ent_id in kg.filter_dict[(-1, r, t)]:
+                    continue
+                valid_heads.append((ent_id, score))
+
+            # 按分数降序排序，找到真实头实体的排名
+            sorted_heads = sorted(valid_heads, key=lambda x: x[1], reverse=True)
+            head_rank = -1
+            for rank, (ent_id, _) in enumerate(sorted_heads, start=1):
+                if ent_id == h:
+                    head_rank = rank
+                    break
+
+            # 取第一个预测头实体（分数最高的）
+            pred_head_id = sorted_heads[0][0] if sorted_heads else -1
+
+            # 写入头实体预测行
+            f.write(f"{h}\t{r}\t{t}\t{pred_head_id}\t{head_rank}\n")
+
+            # ========== 预测尾实体（t'） ==========
+            tail_score = model.score(ent_embs, rel_embs, torch.tensor(
+                [[h + kg.num_rel, r + kg.num_ent, kg.num_ent + kg.num_rel]]).cuda())[0].detach().cpu().numpy()
+
+            # 过滤掉真实尾实体和过滤字典中的无效实体
+            valid_tails = []
+            for ent_id, score in enumerate(tail_score):
+                if ent_id == t or ent_id in kg.filter_dict[(h, r, -1)]:
+                    continue
+                valid_tails.append((ent_id, score))
+
+            # 按分数降序排序，找到真实尾实体的排名
+            sorted_tails = sorted(valid_tails, key=lambda x: x[1], reverse=True)
+            tail_rank = -1
+            for rank, (ent_id, _) in enumerate(sorted_tails, start=1):
+                if ent_id == t:
+                    tail_rank = rank
+                    break
+
+            # 取第一个预测尾实体（分数最高的）
+            pred_tail_id = sorted_tails[0][0] if sorted_tails else -1
+
+            # 写入尾实体预测行
+            f.write(f"{h}\t{r}\t{t}\t{pred_tail_id}\t{tail_rank}\n")
+
+    print(f"✅ Predictions saved to {output_file}")
+
+
 if __name__ == '__main__':
     torch.cuda.set_device(1)
 
@@ -161,13 +227,19 @@ if __name__ == '__main__':
         fusion_function=args.fusion_function,
         score_function=args.score_function
     ).cuda()
-    model.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['model_state_dict'])
+    model.load_state_dict(torch.load(
+        f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')[
+                              'model_state_dict'])
 
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.decay)
-    optimizer.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['optimizer_state_dict'])
+    optimizer.load_state_dict(torch.load(
+        f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')[
+                                  'optimizer_state_dict'])
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, args.step_size, T_mult=2)
-    scheduler.load_state_dict(torch.load(f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')['scheduler_state_dict'])
+    scheduler.load_state_dict(torch.load(
+        f'/mnt/data1/zhz/SPARK2/ckpt/SPARK_DB15K_16_32/DB15K/lr_0.0005num_epoch_3000num_head_4hidden_dim_10240.90.40.1batch_size_2048max_vis_token_16max_txt_token_32tucker_2410.ckpt')[
+                                  'scheduler_state_dict'])
 
     valid_eval_metric(key="valid", val=kg.valid)
     valid_eval_metric(key="test", val=kg.test)
