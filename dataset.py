@@ -9,7 +9,7 @@ class KG(Dataset):
     def __init__(self, data, logger):
         self.data = data
         self.logger = logger
-        self.dir = f"data/{data}/"
+        self.dir = f"../data/{data}/"
         self.ent2id = {}
         self.id2ent = []
         self.rel2id = {}

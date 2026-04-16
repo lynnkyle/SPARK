@@ -136,7 +136,7 @@ if __name__ == '__main__':
     parser.add_argument('--score_function', default="tucker", type=str)
 
     parser.add_argument('--save_dir', default='data/DB15K/llm', type=str)
-    parser.add_argument('--top_k', default=20, type=int)
+    parser.add_argument('--top_k', default=5, type=int)
 
     args = parser.parse_args()
 

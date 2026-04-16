@@ -41,7 +41,7 @@ if __name__ == '__main__':
     parser.add_argument('--data', default="DB15K", type=str)
     parser.add_argument('--lr', default=5e-4, type=float)
     parser.add_argument('--dim', default=256, type=int)
-    parser.add_argument('--num_epoch', default=1500, type=int)
+    parser.add_argument('--num_epoch', default=2000, type=int)
     parser.add_argument('--valid_epoch', default=10, type=int)
     parser.add_argument('--log_epoch', default=100, type=int)
     parser.add_argument('--exp', default='SPARK_DB15K_0.05_1_k3')
@@ -66,13 +66,13 @@ if __name__ == '__main__':
     parser.add_argument('--fusion_function', default="ssm", type=str)
     parser.add_argument('--score_function', default="transe", type=str)
     parser.add_argument('--loss_modality', default="0.5", type=float)
-    parser.add_argument('--loss_entity', default="15", type=float)
+    parser.add_argument('--loss_entity', default="10", type=float)
 
     # MKG-W
     # parser.add_argument('--data', default="MKG-W", type=str)
     # parser.add_argument('--lr', default=5e-4, type=float)
     # parser.add_argument('--dim', default=256, type=int)
-    # parser.add_argument('--num_epoch', default=3000, type=int)
+    # parser.add_argument('--num_epoch', default=2000, type=int)
     # parser.add_argument('--valid_epoch', default=10, type=int)
     # parser.add_argument('--exp', default='Flare')
     # parser.add_argument('--no_write', action='store_true')
@@ -93,7 +93,8 @@ if __name__ == '__main__':
     # parser.add_argument('--max_vis_token', default=16, type=int)
     # parser.add_argument('--max_txt_token', default=24, type=int)
     # parser.add_argument('--score_function', default="tucker", type=str)
-    # parser.add_argument('--mu', default=0, type=float)
+    # parser.add_argument('--loss_modality', default="0.5", type=float)
+    # parser.add_argument('--loss_entity', default="10", type=float)
     args = parser.parse_args()
 
     file_format = ""
